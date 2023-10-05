@@ -19,7 +19,8 @@ add_executable(
   PrestoTaskTest.cpp
   QueryContextCacheTest.cpp
   ServerOperationTest.cpp
-  TaskManagerTest.cpp)
+  TaskManagerTest.cpp
+  QueryContextManagerTest.cpp)
 
 add_test(
   NAME presto_server_test
@@ -40,6 +41,7 @@ target_link_libraries(
   velox_aggregates
   velox_hive_partition_function
   ${RE2}
+  Folly::folly
   gmock
   gtest
   gtest_main)
