@@ -1435,8 +1435,7 @@ public class TestPrestoDriver
         }
     }
 
-    // Disabled due to https://github.com/prestodb/presto/issues/16080
-    @Test(enabled = false, timeOut = 10000)
+    @Test(timeOut = 10000)
     public void testQueryCancelByInterrupt()
             throws Exception
     {
