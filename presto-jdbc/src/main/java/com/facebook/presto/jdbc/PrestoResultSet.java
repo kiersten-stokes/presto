@@ -23,7 +23,9 @@ import com.facebook.presto.jdbc.ColumnInfo.Nullable;
 import com.google.common.collect.AbstractIterator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
+import org.joda.time.LocalDate;
 import org.joda.time.format.DateTimeFormat;
 import org.joda.time.format.DateTimeFormatter;
 import org.joda.time.format.DateTimeFormatterBuilder;
@@ -51,11 +53,14 @@ import java.sql.Statement;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.sql.Types;
+import java.time.ZoneId;
 import java.util.Calendar;
+import java.util.GregorianCalendar;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -70,6 +75,7 @@ import static java.lang.String.format;
 import static java.math.RoundingMode.HALF_UP;
 import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
+import static org.joda.time.DateTimeConstants.MILLIS_PER_DAY;
 
 public class PrestoResultSet
         implements ResultSet
@@ -95,6 +101,7 @@ public class PrestoResultSet
             .toFormatter()
             .withOffsetParsed();
 
+    private static final long START_OF_MODERN_ERA_MILLISECONDS = java.time.LocalDate.of(1901, 1, 1).toEpochDay() * MILLIS_PER_DAY;
     private final Statement statement;
     private final StatementClient client;
     private final DateTimeZone sessionTimeZone;
@@ -265,7 +272,8 @@ public class PrestoResultSet
         }
 
         try {
-            return new Date(DATE_FORMATTER.withZone(localTimeZone).parseMillis(String.valueOf(value)));
+            long millis = parseMillis(DATE_FORMATTER.withZone(localTimeZone).parseMillis(String.valueOf(value)), localTimeZone);
+            return new Date(millis);
         }
         catch (IllegalArgumentException e) {
             throw new SQLException("Invalid date from server: " + value, e);
@@ -327,7 +335,8 @@ public class PrestoResultSet
         ColumnInfo columnInfo = columnInfo(columnIndex);
         if (columnInfo.getColumnTypeName().equalsIgnoreCase("timestamp")) {
             try {
-                return new Timestamp(TIMESTAMP_FORMATTER.withZone(localTimeZone).parseMillis(String.valueOf(value)));
+                long millis = parseMillis(TIMESTAMP_FORMATTER.withZone(localTimeZone).parseMillis(String.valueOf(value)), localTimeZone);
+                return new Timestamp(millis);
             }
             catch (IllegalArgumentException e) {
                 throw new SQLException("Invalid timestamp from server: " + value, e);
@@ -336,7 +345,8 @@ public class PrestoResultSet
 
         if (columnInfo.getColumnTypeName().equalsIgnoreCase("timestamp with time zone")) {
             try {
-                return new Timestamp(TIMESTAMP_WITH_TIME_ZONE_FORMATTER.parseMillis(String.valueOf(value)));
+                long millis = parseMillis(TIMESTAMP_WITH_TIME_ZONE_FORMATTER.parseMillis(String.valueOf(value)), localTimeZone);
+                return new Timestamp(millis);
             }
             catch (IllegalArgumentException e) {
                 throw new SQLException("Invalid timestamp from server: " + value, e);
@@ -344,6 +354,26 @@ public class PrestoResultSet
         }
 
         throw new IllegalArgumentException("Expected column to be a timestamp type but is " + columnInfo.getColumnTypeName());
+    }
+
+    private static long parseMillis(long dateAsMillis, DateTimeZone timeZone)
+    {
+        if (dateAsMillis >= START_OF_MODERN_ERA_MILLISECONDS) {
+            // return milliseconds as-is for dates after 1900
+            return dateAsMillis;
+        }
+
+        DateTime dateTime = new DateTime(dateAsMillis);
+        int year = dateTime.getYear();
+        int month = dateTime.getMonthOfYear() - 1;
+        int day = dateTime.getDayOfMonth();
+        int hour = dateTime.getHourOfDay();
+        int minute = dateTime.getMinuteOfHour();
+        int second = dateTime.getSecondOfMinute();
+
+        Calendar calendar = new GregorianCalendar(year, month, day, hour, minute, second);
+        calendar.setTimeZone(TimeZone.getTimeZone(ZoneId.of(timeZone.getID())));
+        return calendar.getTimeInMillis() + dateTime.getMillisOfSecond();
     }
 
     @Override
